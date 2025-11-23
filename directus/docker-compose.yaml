@@ -1,5 +1,26 @@
-name: directus-cms-template
+name: directus-cms-kdr 
 services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    restart: always
+
   database:
     image: postgis/postgis:16-master
     platform: linux/amd64
@@ -14,7 +35,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_interval: 5s
       start_period: 30s
 
   cache:
@@ -24,21 +44,18 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_interval: 5s
       start_period: 30s
 
   directus:
     image: directus/directus:11.12.0
-    ports:
-      - ${DIRECTUS_PORT}:8055
-    volumes:
-      - ./uploads:/directus/uploads
-      - ./extensions:/directus/extensions
     depends_on:
       database:
         condition: service_healthy
       cache:
         condition: service_healthy
+    volumes:
+      - ./uploads:/directus/uploads
+      - ./extensions:/directus/extensions
     environment:
       SECRET: ${DIRECTUS_SECRET}
 
@@ -59,28 +76,20 @@ services:
 
       WEBSOCKETS_ENABLED: ${WEBSOCKETS_ENABLED}
 
-      PUBLIC_URL: ${PUBLIC_URL}
+      PUBLIC_URL: https://${DOMAIN}
 
       CORS_ENABLED: ${CORS_ENABLED}
-      CORS_ORIGIN: ${CORS_ORIGIN}
+      CORS_ORIGIN: https://${DOMAIN}
 
-      REFRESH_TOKEN_COOKIE_SECURE: ${REFRESH_TOKEN_COOKIE_SECURE}
-      REFRESH_TOKEN_COOKIE_SAME_SITE: ${REFRESH_TOKEN_COOKIE_SAME_SITE}
-      REFRESH_TOKEN_DOMAIN: ${REFRESH_TOKEN_COOKIE_DOMAIN}
+      REFRESH_TOKEN_COOKIE_SECURE: true
+      SESSION_COOKIE_SECURE: true
 
-      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE}
-      SESSION_COOKIE_SAME_SITE: ${SESSION_COOKIE_SAME_SITE}
-      SESSION_COOKIE_DOMAIN: ${SESSION_COOKIE_DOMAIN}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.directus.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.directus.entrypoints=websecure"
+      - "traefik.http.routers.directus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.directus.loadbalancer.server.port=8055"
 
-      EXTENSIONS_PATH: ${EXTENSIONS_PATH}
-      EXTENSIONS_AUTO_RELOAD: ${EXTENSIONS_AUTO_RELOAD}
-      EXTENSIONS_ROLLDOWN: ${EXTENSIONS_ROLLDOWN}
-
-      CONTENT_SECURITY_POLICY_DIRECTIVES__FRAME_SRC: ${CONTENT_SECURITY_POLICY_DIRECTIVES__FRAME_SRC}
-
-      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT}
-      EMAIL_FROM: ${EMAIL_FROM}
-      EMAIL_SMTP_HOST: ${EMAIL_SMTP_HOST}
-      EMAIL_SMTP_PORT: ${EMAIL_SMTP_PORT}
-      EMAIL_SMTP_USER: ${EMAIL_SMTP_USER}
-      EMAIL_SMTP_PASSWORD: ${EMAIL_SMTP_PASSWORD}
+volumes:
+  letsencrypt:
